@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Smart Parking Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f4f4f4;
+        }
+        h1 { margin-bottom: 10px; }
+
+        .stats, .camera-feed {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .stat-box {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            flex: 1;
+            min-width: 180px;
+        }
+
+        .slot-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            animation: fadeIn 1s ease-in-out;
+        }
+
+        .slot {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            width: 200px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+            opacity: 0;
+            animation: slotAnimation 0.5s forwards;
+        }
+
+        .slot:hover {
+            transform: scale(1.02);
+        }
+
+        .occupied {
+            border-left: 5px solid red;
+        }
+
+        .free {
+            border-left: 5px solid green;
+        }
+
+        .log {
+            background: #fff;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        canvas {
+            background: white;
+            padding: 10px;
+            border-radius: 10px;
+        }
+
+        img#cameraFeed {
+            border-radius: 10px;
+            border: 1px solid #ccc;
+            width: 480px;
+            height: auto;
+        }
+
+        /* Slot Animation */
+        @keyframes slotAnimation {
+            0% {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Fade in effect for slot container */
+        @keyframes fadeIn {
+            0% {
+                opacity: 0;
+            }
+            100% {
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<h1>Smart Parking Dashboard</h1>
+
+<div class="stats">
+    <div class="stat-box">Total Slots: <span id="total">4</span></div>
+    <div class="stat-box">Cars Inside: <span id="occupied">0</span></div>
+    <div class="stat-box">Available Slots: <span id="available">0</span></div>
+</div>
+
+<h2>Slot Details</h2>
+<div class="slot-container" id="slots">
+    <!-- Slots will be dynamically filled here -->
+</div>
+
+<h2>Ultrasonic Sensor Chart</h2>
+<canvas id="ultrasonicChart" width="600" height="250"></canvas>
+
+<h2>Entrance Camera Feed</h2>
+<div class="camera-feed">
+    <img id="cameraFeed" src="/video_feed" alt="Camera Feed">
+</div>
+
+<h2>Entry/Exit Log</h2>
+<div class="log" id="log"></div>
+
+<script>
+    let logElement = document.getElementById('log');
+    let chart = new Chart(document.getElementById('ultrasonicChart').getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Ultrasonic Distance (cm)',
+                data: [],
+                borderColor: 'blue',
+                backgroundColor: 'rgba(173, 216, 230, 0.5)',
+                tension: 0.4,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            animation: {
+                duration: 800,
+                easing: 'easeOutQuart'
+            },
+            scales: {
+                y: {
+                    suggestedMin: 0,
+                    suggestedMax: 40
+                }
+            }
+        }
+    });
+
+    async function fetchStatus() {
+        const res = await fetch('/parking-status');
+        const data = await res.json();
+
+        document.getElementById('total').innerText = data.total_slots;
+        document.getElementById('occupied').innerText = data.car_count;
+        document.getElementById('available').innerText = data.available_slots;
+
+        let now = new Date().toLocaleTimeString();
+        const lastAction = logElement.lastChild?.textContent;
+        const currentStatus = `Cars Parked: ${data.car_count}`;
+        if (!lastAction || !lastAction.includes(currentStatus)) {
+            const logItem = document.createElement('div');
+            logItem.textContent = `${now} — ${currentStatus}`;
+            logElement.appendChild(logItem);
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        const container = document.getElementById('slots');
+        container.innerHTML = '';
+        data.slots.forEach((slot, index) => {
+            const div = document.createElement('div');
+            div.className = 'slot ' + (slot.final_occupied ? 'occupied' : 'free');
+            div.innerHTML = `
+                <h3>Slot ${slot.id}</h3>
+                <p>Ultrasonic: ${slot.ultrasonic_occupied}</p>
+                <p>Camera: ${slot.camera_occupied}</p>
+                <p>Distance: ${slot.ultrasonic_distance_cm} cm</p>
+                <p><strong>Status: ${slot.final_occupied ? 'Occupied' : 'Free'}</strong></p>
+            `;
+            container.appendChild(div);
+        });
+
+        const d = data.slots[0].ultrasonic_distance_cm;
+        const time = new Date().toLocaleTimeString();
+        if (chart.data.labels.length > 20) {
+            chart.data.labels.shift();
+            chart.data.datasets[0].data.shift();
+        }
+        chart.data.labels.push(time);
+        chart.data.datasets[0].data.push(d);
+        chart.update();
+    }
+
+    fetchStatus();
+    setInterval(fetchStatus, 3000);
+</script>
+
+</body>
+</html>
